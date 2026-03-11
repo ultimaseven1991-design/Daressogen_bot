@@ -48,7 +48,6 @@ def send_welcome(message):
         "👋 Привет! Я бот для преобразования чисел.\n\n"
         "📝 Отправь мне **4 цифры** (например, 1234), "
         "и я применю к ним специальную формулу.\n\n"
-        "🔢 Формула: (число XOR 8279) AND 8191"
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
