@@ -55,8 +55,3 @@ def calculate_number(message):
         )
         bot.reply_to(message, error_message, parse_mode="Markdown")
         print(f"Ошибка в боте: {e}")
-
-if __name__ == '__main__':
-    print("✅ Бот запущен и готов к работе!")
-    print("🚀 HTTP-заглушка работает в фоне")
-    bot.polling(none_stop=True)
