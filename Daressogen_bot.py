@@ -1,44 +1,71 @@
 import os
 import telebot
-from telebot import types
 
-# Токен вашего бота (получите у @BotFather)
 TOKEN = os.environ.get('BOT_TOKEN')
-
 bot = telebot.TeleBot(TOKEN)
 
+# Приветствие
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "👋 Привет! Отправь мне 4 цифры, и я применю к ним формулу: (число XOR 8279) AND 8191")
+    welcome_text = (
+        "👋 Привет! Я бот для преобразования чисел.\n\n"
+        "📝 Отправь мне **4 цифры** (например, 1234), "
+        "и я применю к ним специальную формулу.\n\n"
+    )
+    bot.reply_to(message, welcome_text, parse_mode="Markdown")
 
+# Обработка всех сообщений
 @bot.message_handler(func=lambda message: True)
 def calculate_number(message):
     try:
-        # Проверяем, что введено ровно 4 цифры
-        text = message.text.strip()
+        # Получаем текст и убираем лишние пробелы
+        user_input = message.text.strip()
         
-        # Удаляем возможные пробелы и проверяем, что это число из 4 цифр
-        if not text.isdigit() or len(text) != 4:
-            bot.reply_to(message, "❌ Пожалуйста, введите ровно 4 цифры (например, 1234)")
+        # Проверка 1: Пустое сообщение
+        if not user_input:
+            bot.reply_to(message, "❌ Вы отправили пустое сообщение. Нужно ввести 4 цифры!")
             return
         
-        # Преобразуем в число
-        mynum = int(text)
+        # Проверка 2: Только цифры?
+        if not user_input.isdigit():
+            # Если есть пробелы, покажем пример
+            if ' ' in user_input:
+                bot.reply_to(message, "❌ Не используйте пробелы! Нужно ввести 4 цифры подряд.\n"
+                                      "✅ Правильно: `1234`", parse_mode="Markdown")
+            else:
+                bot.reply_to(message, f"❌ Нужно ввести ТОЛЬКО цифры. Вы ввели: '{user_input}'")
+            return
         
-        # Применяем формулу из вашего кода
-        result = (mynum ^ 8279) & 8191
+        # Проверка 3: Ровно 4 цифры?
+        if len(user_input) != 4:
+            bot.reply_to(message, f"❌ Нужно ввести РОВНО 4 цифры. Вы ввели {len(user_input)} цифр(ы).\n"
+                                  f"✅ Пример: `1234`", parse_mode="Markdown")
+            return
         
-        # Форматируем результат как 4 цифры (добавляем ведущие нули если нужно)
+        # Если все проверки пройдены - вычисляем
+        chislo = int(user_input)
+        result = (chislo ^ 8279) & 8191
         result_str = str(result).zfill(4)
         
-        # Отправляем результат
-        response = f"✅ Введено: {text}\n🔢 Результат: {result_str}"
-        bot.reply_to(message, response)
+        # Отправляем красивый ответ
+        response = (
+            f"✅ **Введено:** `{user_input}`\n"
+            f"🔢 **Результат:** `{result_str}`\n"
+            f"✨ Формула: ({user_input} XOR 8279) AND 8191 = {result_str}"
+        )
+        bot.reply_to(message, response, parse_mode="Markdown")
         
     except Exception as e:
-        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
+        # Ловим любые неожиданные ошибки
+        error_message = (
+            "😕 Произошла неизвестная ошибка.\n"
+            f"Текст ошибки: `{str(e)}`\n\n"
+            "Попробуйте еще раз или отправьте /start"
+        )
+        bot.reply_to(message, error_message, parse_mode="Markdown")
+        # Выводим ошибку в логи Render для отладки
+        print(f"Ошибка: {e}")
 
-# Запускаем бота
 if __name__ == '__main__':
-    print("Бот запущен...")
+    print("✅ Бот запущен и готов к работе!")
     bot.polling(none_stop=True)
