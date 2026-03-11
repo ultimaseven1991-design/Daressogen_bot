@@ -80,7 +80,6 @@ def calculate_number(message):
         response = (
             f"✅ **Введено:** `{user_input}`\n"
             f"🔢 **Результат:** `{result_str}`\n"
-            f"✨ Формула: ({user_input} XOR 8279) AND 8191 = {result_str}"
         )
         bot.reply_to(message, response, parse_mode="Markdown")
         
