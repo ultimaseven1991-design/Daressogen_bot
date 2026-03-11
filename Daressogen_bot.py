@@ -2,7 +2,7 @@ import telebot
 from telebot import types
 
 # Токен вашего бота (получите у @BotFather)
-TOKEN = 'ВАШ_ТОКЕН_СЮДА'
+TOKEN = os.environ.get('BOT_TOKEN')
 
 bot = telebot.TeleBot(TOKEN)
 
