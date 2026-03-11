@@ -1,41 +1,5 @@
 import os
 import telebot
-from threading import Thread
-from http.server import HTTPServer, BaseHTTPRequestHandler
-
-# ========== HTTP-ЗАГЛУШКА (для Render) ==========
-# Этот сервер просто отвечает "OK" на любые запросы
-# Render думает, что это веб-сайт, и не ругается на порты
-
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/plain; charset=utf-8')
-        self.end_headers()
-        self.wfile.write(b'Telegram bot is running!')
-    
-    def do_HEAD(self):
-        self.send_response(200)
-        self.end_headers()
-    
-    # Отключаем логи (чтобы не засоряли консоль)
-    def log_message(self, format, *args):
-        pass
-
-def run_http_server():
-    try:
-        # Render сам говорит, какой порт использовать через переменную PORT
-        port = int(os.environ.get('PORT', 10000))
-        server = HTTPServer(('0.0.0.0', port), HealthCheckHandler)
-        print(f"🌐 HTTP-заглушка запущена на порту {port}")
-        print(f"✅ Render больше не будет ругаться на порты!")
-        server.serve_forever()
-    except Exception as e:
-        print(f"⚠️ Ошибка HTTP-сервера: {e}")
-
-# Запускаем HTTP-сервер в отдельном потоке
-http_thread = Thread(target=run_http_server, daemon=True)
-http_thread.start()
 
 # ========== ОСНОВНОЙ КОД БОТА ==========
 
