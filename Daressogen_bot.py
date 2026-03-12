@@ -6,7 +6,7 @@ import requests
 import time
 import threading
 
-# Настройка логирования (только важное)
+# Настройка логирования
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,6 @@ app = Flask(__name__)
 def setup_webhook():
     webhook_url = f"{RENDER_URL}/webhook/{TOKEN}"
     
-    # Удаляем старый и устанавливаем новый вебхук
     requests.post(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook", 
                   json={"drop_pending_updates": True})
     time.sleep(0.5)
@@ -53,7 +52,7 @@ def webhook():
         update = telebot.types.Update.de_json(request.get_data().decode('utf-8'))
         bot.process_new_updates([update])
         
-        # Принудительная обработка (на всякий случай)
+        # Принудительная обработка
         if update.message:
             if update.message.text == '/start':
                 handle_start(update.message)
@@ -62,28 +61,51 @@ def webhook():
                 
         return "OK", 200
     except Exception as e:
-        logger.error(f"Ошибка: {e}")
+        logger.error(f"Ошибка в webhook: {e}")
         return "Error", 500
 
 # ========== ОБРАБОТЧИКИ КОМАНД ==========
 @bot.message_handler(commands=['start'])
 def handle_start(message):
-    bot.reply_to(message, "✅ Бот работает!\nОтправь 4 цифры, например: 1234")
+    try:
+        bot.reply_to(message, "✅ Бот работает!\nОтправь 4 цифры, например: 1234")
+    except Exception as e:
+        logger.error(f"Ошибка в start: {e}")
 
 @bot.message_handler(func=lambda m: True)
 def handle_message(message):
-    text = message.text.strip()
-    
-    if text.isdigit() and len(text) == 4:
-        result = str((int(text) ^ 8279) & 8191).zfill(4)
-        bot.reply_to(message, f"✅ Результат: `{result}`", parse_mode="Markdown")
-    else:
-        bot.reply_to(message, "❌ Нужно ввести ровно 4 цифры!")
+    try:
+        text = message.text.strip()
+        
+        # Проверяем, что текст не пустой
+        if not text:
+            bot.reply_to(message, "❌ Пустое сообщение")
+            return
+        
+        # Убираем все пробелы и проверяем, остались ли только цифры
+        cleaned = ''.join(c for c in text if c.isdigit())
+        
+        if len(cleaned) == 4 and cleaned == text:  # Проверяем, что не было других символов
+            result = str((int(cleaned) ^ 8279) & 8191).zfill(4)
+            bot.reply_to(message, f"✅ Результат: `{result}`", parse_mode="Markdown")
+        else:
+            # Если были другие символы или не 4 цифры
+            if cleaned != text:
+                bot.reply_to(message, "❌ Используйте ТОЛЬКО цифры, без пробелов и символов!")
+            else:
+                bot.reply_to(message, "❌ Нужно ввести ровно 4 цифры!")
+                
+    except Exception as e:
+        logger.error(f"Ошибка в обработке: {e}")
+        try:
+            bot.reply_to(message, "😕 Произошла ошибка. Отправьте /start")
+        except:
+            pass
 
 # ========== ПОДДЕРЖАНИЕ АКТИВНОСТИ ==========
 def keep_alive():
     while True:
-        time.sleep(300)  # Каждые 5 минут
+        time.sleep(300)
         try:
             requests.get(f"{RENDER_URL}/ping", timeout=5)
         except:
