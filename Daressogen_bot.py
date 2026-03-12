@@ -4,6 +4,12 @@ from flask import Flask, request
 import logging
 import sys
 
+@app.route(f'/webhook/{TOKEN}', methods=['POST'])
+def webhook():
+    print("🔥🔥🔥 ПОЛУЧЕН POST-ЗАПРОС! 🔥🔥🔥")
+    print(f"Headers: {request.headers}")
+    print(f"Data: {request.get_data()}")
+
 # Минимальное логирование
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
