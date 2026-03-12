@@ -13,14 +13,14 @@ if not TOKEN:
     logger.error("Нет токена!")
     sys.exit(1)
 
+bot = telebot.TeleBot(TOKEN)
+app = Flask(__name__)
+
 @app.route(f'/webhook/{TOKEN}', methods=['POST'])
 def webhook():
     print("🔥🔥🔥 ПОЛУЧЕН POST-ЗАПРОС! 🔥🔥🔥")
     print(f"Headers: {request.headers}")
     print(f"Data: {request.get_data()}")
-
-bot = telebot.TeleBot(TOKEN)
-app = Flask(__name__)
 
 @app.route('/ping')
 def ping():
