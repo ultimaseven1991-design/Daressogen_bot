@@ -3,6 +3,7 @@ import telebot
 from flask import Flask, request
 import logging
 import sys
+import requests
 
 # ========== НАСТРОЙКА ЛОГИРОВАНИЯ ==========
 logging.basicConfig(
@@ -30,6 +31,22 @@ if not RENDER_URL:
 # ========== СОЗДАЕМ БОТА ==========
 bot = telebot.TeleBot(TOKEN)
 
+# ========== ФУНКЦИЯ ПРОВЕРКИ ВЕБХУКА ==========
+def setup_webhook():
+    """Устанавливает вебхук при запуске"""
+    webhook_url = f"{RENDER_URL}/webhook/{TOKEN}"
+    try:
+        response = requests.post(
+            f"https://api.telegram.org/bot{TOKEN}/setWebhook",
+            json={"url": webhook_url, "drop_pending_updates": True}
+        )
+        if response.json().get('ok'):
+            logger.info(f"✅ Вебхук установлен: {webhook_url}")
+        else:
+            logger.error(f"❌ Ошибка установки вебхука: {response.json()}")
+    except Exception as e:
+            logger.error(f"❌ Ошибка при установке вебхука: {e}")
+
 # ========== МАРШРУТЫ FLASK ==========
 @app.route('/')
 def index():
@@ -41,7 +58,8 @@ def ping():
     logger.info("🏓 Пинг получен")
     return "pong"
 
-@app.route('/webhook', methods=['POST'])
+# ВАЖНО: маршрут с токеном в URL (как ожидает Telegram)
+@app.route(f'/webhook/{TOKEN}', methods=['POST'])
 def webhook():
     """ОСНОВНОЙ ОБРАБОТЧИК - получает сообщения от Telegram"""
     logger.info("📩 Получен запрос от Telegram")
@@ -51,7 +69,7 @@ def webhook():
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
         
-        # Передаем боту
+        # Передаем боту для обработки
         bot.process_new_updates([update])
         
         # Принудительная обработка (на случай если обработчики не сработали)
@@ -65,7 +83,7 @@ def webhook():
         return "OK", 200
         
     except Exception as e:
-        logger.error(f"❌ Ошибка: {e}")
+        logger.error(f"❌ Ошибка в webhook: {e}")
         return "Error", 500
 
 # ========== ОБРАБОТЧИКИ КОМАНД БОТА ==========
@@ -151,15 +169,8 @@ if __name__ == '__main__':
     logger.info(f"🌐 URL: {RENDER_URL}")
     logger.info("=" * 50)
     
-    # Проверяем установку вебхука (опционально)
-    try:
-        webhook_url = f"{RENDER_URL}/webhook"
-        import requests
-        requests.post(f"https://api.telegram.org/bot{TOKEN}/setWebhook", 
-                     json={"url": webhook_url})
-        logger.info(f"✅ Вебхук установлен на {webhook_url}")
-    except Exception as e:
-        logger.warning(f"⚠️ Не удалось установить вебхук: {e}")
+    # Устанавливаем вебхук при запуске
+    setup_webhook()
     
     # Запускаем сервер
     port = int(os.environ.get('PORT', 10000))
