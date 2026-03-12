@@ -4,12 +4,6 @@ from flask import Flask, request
 import logging
 import sys
 
-@app.route(f'/webhook/{TOKEN}', methods=['POST'])
-def webhook():
-    print("🔥🔥🔥 ПОЛУЧЕН POST-ЗАПРОС! 🔥🔥🔥")
-    print(f"Headers: {request.headers}")
-    print(f"Data: {request.get_data()}")
-
 # Минимальное логирование
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 logger = logging.getLogger(__name__)
@@ -18,6 +12,12 @@ TOKEN = os.environ.get('BOT_TOKEN')
 if not TOKEN:
     logger.error("Нет токена!")
     sys.exit(1)
+
+@app.route(f'/webhook/{TOKEN}', methods=['POST'])
+def webhook():
+    print("🔥🔥🔥 ПОЛУЧЕН POST-ЗАПРОС! 🔥🔥🔥")
+    print(f"Headers: {request.headers}")
+    print(f"Data: {request.get_data()}")
 
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
