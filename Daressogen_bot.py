@@ -1,4 +1,3 @@
-import threading
 import os
 import telebot
 from flask import Flask, request, jsonify
@@ -7,6 +6,7 @@ import requests
 import time
 import sys
 import json
+import threading
 
 # Настройка логирования с максимальной детализацией
 logging.basicConfig(
@@ -37,6 +37,19 @@ logger.info(f"✅ URL сервера: {RENDER_URL}")
 # ========== ИНИЦИАЛИЗАЦИЯ БОТА ==========
 bot = telebot.TeleBot(TOKEN)
 app = Flask(__name__)
+
+# ========== ОТЛАДКА РЕГИСТРАЦИИ ОБРАБОТЧИКОВ ==========
+def debug_handlers():
+    """Проверяет, какие обработчики зарегистрированы"""
+    logger.info("=" * 60)
+    logger.info("🔍 ПРОВЕРКА ЗАРЕГИСТРИРОВАННЫХ ОБРАБОТЧИКОВ:")
+    logger.info(f"  • Всего обработчиков: {len(bot.message_handlers)}")
+    for i, handler in enumerate(bot.message_handlers):
+        if hasattr(handler, 'filters'):
+            logger.info(f"  • Обработчик {i}: {handler.filters}")
+        else:
+            logger.info(f"  • Обработчик {i}: {handler}")
+    logger.info("=" * 60)
 
 # ========== ФУНКЦИЯ УСТАНОВКИ ВЕБХУКА ==========
 def setup_webhook():
@@ -117,54 +130,6 @@ def debug():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route(f'/webhook/{TOKEN}', methods=['POST'])
-def webhook():
-    """ОСНОВНОЙ ОБРАБОТЧИК - ВСЕ СООБЩЕНИЯ ПРИХОДЯТ СЮДА"""
-    logger.info("=" * 60)
-    logger.info("📩 ПОЛУЧЕНО СООБЩЕНИЕ ОТ TELEGRAM!")
-    
-    try:
-        # Получаем ВСЕ данные запроса
-        json_string = request.get_data().decode('utf-8')
-        logger.info(f"📄 ПОЛНЫЕ ДАННЫЕ (первые 500 символов): {json_string[:500]}")
-        
-        # Парсим JSON для проверки структуры
-        data = json.loads(json_string)
-        logger.info(f"📊 СТРУКТУРА: {json.dumps(data, indent=2, ensure_ascii=False)[:500]}")
-        
-        # Создаем update объект
-        update = telebot.types.Update.de_json(json_string)
-        
-        # Детальный разбор сообщения
-        if update.message:
-            logger.info(f"👤 ИНФОРМАЦИЯ О СООБЩЕНИИ:")
-            logger.info(f"  • ID сообщения: {update.message.message_id}")
-            logger.info(f"  • От пользователя: {update.message.from_user.id} (@{update.message.from_user.username})")
-            logger.info(f"  • Chat ID: {update.message.chat.id}")
-            logger.info(f"  • Текст: '{update.message.text}'")
-            logger.info(f"  • Тип: {update.message.content_type}")
-        elif update.callback_query:
-            logger.info(f"🔄 Callback query: {update.callback_query.data}")
-        else:
-            logger.info(f"❓ Неизвестный тип обновления: {update}")
-        
-        # Обрабатываем обновление через бота
-        logger.info("🔄 Передаю обновление боту...")
-        bot.process_new_updates([update])
-        logger.info("✅ Обновление передано боту")
-        
-        return "OK", 200
-        
-    except json.JSONDecodeError as e:
-        logger.error(f"❌ Ошибка парсинга JSON: {e}")
-        logger.error(f"❌ Сырые данные: {request.get_data()}")
-        return "Invalid JSON", 400
-        
-    except Exception as e:
-        logger.error(f"❌ Критическая ошибка в webhook: {e}")
-        logger.exception("Полный стек ошибки:")
-        return "Error", 500
-
 # ========== ОБРАБОТЧИКИ КОМАНД БОТА ==========
 @bot.message_handler(commands=['start'])
 def handle_start(message):
@@ -173,26 +138,36 @@ def handle_start(message):
     logger.info(f"🎯 ВЫЗВАН ОБРАБОТЧИК /start")
     logger.info(f"👤 Пользователь: {message.from_user.id} (@{message.from_user.username})")
     logger.info(f"💬 Текст: {message.text}")
+    logger.info(f"💬 Chat ID: {message.chat.id}")
     
     try:
         # Пробуем отправить ответ
+        response_text = "✅ **Бот работает!**\n\nОтправь мне 4 цифры, например: `1234`"
+        logger.info(f"📤 Отправляю ответ: {response_text}")
+        
         sent_message = bot.reply_to(
             message, 
-            "✅ **Бот работает!**\n\nОтправь мне 4 цифры, например: `1234`",
+            response_text,
             parse_mode="Markdown"
         )
         logger.info(f"✅ Ответ отправлен! ID сообщения: {sent_message.message_id}")
+        return True
     except Exception as e:
         logger.error(f"❌ Ошибка отправки ответа на /start: {e}")
+        logger.exception("Полный стек ошибки:")
+        
         # Пробуем альтернативный метод
         try:
+            logger.info("🔄 Пробую альтернативный метод send_message...")
             sent_message = bot.send_message(
                 message.chat.id,
                 "✅ Бот работает! Отправь мне 4 цифры."
             )
             logger.info(f"✅ Альтернативный ответ отправлен! ID: {sent_message.message_id}")
+            return True
         except Exception as e2:
             logger.error(f"❌ И альтернативный метод не сработал: {e2}")
+            return False
 
 @bot.message_handler(commands=['debug'])
 def handle_debug(message):
@@ -230,6 +205,7 @@ def handle_all_messages(message):
     logger.info(f"👤 Пользователь: {message.from_user.id} (@{message.from_user.username})")
     logger.info(f"💬 Текст сообщения: '{message.text}'")
     logger.info(f"📊 Длина текста: {len(message.text) if message.text else 0}")
+    logger.info(f"💬 Chat ID: {message.chat.id}")
     
     try:
         user_input = message.text.strip()
@@ -247,6 +223,7 @@ def handle_all_messages(message):
             logger.info(f"❌ Неверный формат: {user_input}")
         
         # Отправляем ответ
+        logger.info(f"📤 Отправляю ответ: {response_text}")
         sent_message = bot.reply_to(message, response_text, parse_mode="Markdown")
         logger.info(f"✅ Ответ отправлен! ID: {sent_message.message_id}")
         
@@ -259,6 +236,73 @@ def handle_all_messages(message):
             bot.reply_to(message, f"😕 Ошибка: {str(e)[:100]}")
         except:
             pass
+
+# ========== ОСНОВНОЙ ОБРАБОТЧИК ВЕБХУКА ==========
+@app.route(f'/webhook/{TOKEN}', methods=['POST'])
+def webhook():
+    """ОСНОВНОЙ ОБРАБОТЧИК - ВСЕ СООБЩЕНИЯ ПРИХОДЯТ СЮДА"""
+    logger.info("=" * 60)
+    logger.info("📩 ПОЛУЧЕНО СООБЩЕНИЕ ОТ TELEGRAM!")
+    
+    try:
+        # Получаем ВСЕ данные запроса
+        json_string = request.get_data().decode('utf-8')
+        logger.info(f"📄 ПОЛНЫЕ ДАННЫЕ (первые 500 символов): {json_string[:500]}")
+        
+        # Парсим JSON для проверки структуры
+        data = json.loads(json_string)
+        
+        # Создаем update объект
+        update = telebot.types.Update.de_json(json_string)
+        
+        # Детальный разбор сообщения
+        if update.message:
+            logger.info(f"👤 ИНФОРМАЦИЯ О СООБЩЕНИИ:")
+            logger.info(f"  • ID сообщения: {update.message.message_id}")
+            logger.info(f"  • От пользователя: {update.message.from_user.id} (@{update.message.from_user.username})")
+            logger.info(f"  • Chat ID: {update.message.chat.id}")
+            logger.info(f"  • Текст: '{update.message.text}'")
+            logger.info(f"  • Тип: {update.message.content_type}")
+            
+        elif update.callback_query:
+            logger.info(f"🔄 Callback query: {update.callback_query.data}")
+        else:
+            logger.info(f"❓ Неизвестный тип обновления: {update}")
+        
+        # Обрабатываем обновление через бота
+        logger.info("🔄 Передаю обновление боту...")
+        bot.process_new_updates([update])
+        logger.info("✅ Обновление передано боту")
+        
+        # ===== ПРИНУДИТЕЛЬНЫЙ ВЫЗОВ ОБРАБОТЧИКОВ =====
+        # Это нужно, потому что иногда обработчики не вызываются автоматически
+        try:
+            if update.message and update.message.text:
+                if update.message.text == '/start':
+                    logger.info("🔴 ВЫЗЫВАЮ handle_start() ПРИНУДИТЕЛЬНО")
+                    handle_start(update.message)
+                elif update.message.text == '/debug':
+                    logger.info("🔴 ВЫЗЫВАЮ handle_debug() ПРИНУДИТЕЛЬНО")
+                    handle_debug(update.message)
+                else:
+                    logger.info(f"🔴 ВЫЗЫВАЮ handle_all_messages() ПРИНУДИТЕЛЬНО для: {update.message.text}")
+                    handle_all_messages(update.message)
+        except Exception as e:
+            logger.error(f"❌ Ошибка при принудительном вызове: {e}")
+            logger.exception("Полный стек ошибки принудительного вызова:")
+        # ==============================================
+        
+        return "OK", 200
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"❌ Ошибка парсинга JSON: {e}")
+        logger.error(f"❌ Сырые данные: {request.get_data()}")
+        return "Invalid JSON", 400
+        
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка в webhook: {e}")
+        logger.exception("Полный стек ошибки:")
+        return "Error", 500
 
 # ========== ФУНКЦИЯ ПОДДЕРЖАНИЯ АКТИВНОСТИ ==========
 def keep_alive():
@@ -286,6 +330,9 @@ if __name__ == '__main__':
     logger.info("=" * 60)
     logger.info("🚀 ЗАПУСК БОТА")
     logger.info("=" * 60)
+    
+    # Проверяем регистрацию обработчиков
+    debug_handlers()
     
     # Устанавливаем вебхук
     if setup_webhook():
