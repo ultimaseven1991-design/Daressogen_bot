@@ -2,59 +2,183 @@ import os
 import telebot
 import time
 import threading
-from flask import Flask, request
+from flask import Flask, request, jsonify
 import logging
+import requests
+import sys
 
 # Настройка логирования
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # ========== ОСНОВНОЙ КОД БОТА ==========
 
 TOKEN = os.environ.get('BOT_TOKEN')
-bot = telebot.TeleBot(TOKEN)
+if not TOKEN:
+    logger.error("BOT_TOKEN не установлен!")
+    sys.exit(1)
 
-# Создаем Flask приложение для вебхуков
+# Инициализируем бота без polling
+bot = telebot.TeleBot(TOKEN)
+bot.remove_webhook()  # Сразу удаляем вебхук при старте
+
+# Создаем Flask приложение
 app = Flask(__name__)
 
-# Обработчик для пинг-запросов (чтобы бот не засыпал)
+# Функция для полного сброса всех подключений
+def force_reset_webhook():
+    """Принудительно сбрасывает все подключения бота"""
+    try:
+        # Используем прямой запрос к API Telegram
+        url = f"https://api.telegram.org/bot{TOKEN}/deleteWebhook"
+        response = requests.post(url, json={
+            "drop_pending_updates": True
+        })
+        
+        if response.status_code == 200:
+            result = response.json()
+            logger.info(f"Webhook удален: {result}")
+            return True
+        else:
+            logger.error(f"Ошибка удаления webhook: {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"Ошибка при сбросе webhook: {e}")
+        return False
+
+# Функция установки webhook
+def setup_webhook():
+    """Устанавливает webhook для бота"""
+    render_url = os.environ.get('RENDER_URL')
+    if not render_url:
+        logger.error("RENDER_URL не установлен!")
+        return False
+    
+    webhook_url = f"{render_url.rstrip('/')}/{TOKEN}"
+    
+    try:
+        # Используем прямой запрос к API для установки webhook
+        url = f"https://api.telegram.org/bot{TOKEN}/setWebhook"
+        response = requests.post(url, json={
+            "url": webhook_url,
+            "drop_pending_updates": True,
+            "max_connections": 40,
+            "allowed_updates": ["message", "callback_query"]
+        })
+        
+        if response.status_code == 200:
+            result = response.json()
+            if result.get('ok'):
+                logger.info(f"Webhook успешно установлен на {webhook_url}")
+                
+                # Проверяем статус webhook
+                time.sleep(1)
+                check_url = f"https://api.telegram.org/bot{TOKEN}/getWebhookInfo"
+                check_response = requests.get(check_url)
+                if check_response.status_code == 200:
+                    webhook_info = check_response.json()
+                    logger.info(f"Статус webhook: {webhook_info}")
+                return True
+            else:
+                logger.error(f"Ошибка установки webhook: {result}")
+                return False
+        else:
+            logger.error(f"HTTP ошибка: {response.status_code}")
+            return False
+    except Exception as e:
+        logger.error(f"Ошибка при установке webhook: {e}")
+        return False
+
+# Маршруты Flask
 @app.route('/')
 def index():
-    return "Bot is running!", 200
+    return jsonify({
+        "status": "running",
+        "mode": "webhook",
+        "timestamp": time.time()
+    })
 
 @app.route('/ping')
 def ping():
-    return "pong", 200
+    return "pong"
 
-# Обработчик вебхука от Telegram
-@app.route('/webhook', methods=['POST'])
+@app.route('/health')
+def health():
+    """Проверка здоровья"""
+    return jsonify({
+        "status": "healthy",
+        "webhook_configured": True,
+        "timestamp": time.time()
+    })
+
+@app.route(f'/{TOKEN}', methods=['POST'])
 def webhook():
+    """Основной обработчик webhook от Telegram"""
     if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return "OK", 200
+        try:
+            json_string = request.get_data().decode('utf-8')
+            update = telebot.types.Update.de_json(json_string)
+            
+            # Обрабатываем обновление
+            bot.process_new_updates([update])
+            
+            return "OK", 200
+        except Exception as e:
+            logger.error(f"Ошибка обработки webhook: {e}")
+            return jsonify({"error": str(e)}), 500
     else:
-        return "Wrong content type", 403
+        return jsonify({"error": "Wrong content type"}), 403
 
-# Функция для отправки периодических пингов
+@app.route('/debug/webhook', methods=['GET'])
+def debug_webhook():
+    """Отладочный маршрут для проверки статуса webhook"""
+    try:
+        url = f"https://api.telegram.org/bot{TOKEN}/getWebhookInfo"
+        response = requests.get(url)
+        if response.status_code == 200:
+            return jsonify(response.json())
+        else:
+            return jsonify({"error": "Failed to get webhook info"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+# Функция для поддержания активности
 def keep_alive():
-    """Функция для поддержания активности бота"""
+    """Периодически проверяет статус и поддерживает активность"""
     while True:
         try:
-            # Отправляем себе сообщение (опционально)
-            # bot.send_message(ADMIN_CHAT_ID, "Пинг от бота")
+            # Проверяем статус webhook
+            url = f"https://api.telegram.org/bot{TOKEN}/getWebhookInfo"
+            response = requests.get(url, timeout=10)
             
-            # Логируем время
-            logger.info(f"Бот активен: {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('ok'):
+                    webhook_info = data['result']
+                    if webhook_info.get('url'):
+                        logger.debug(f"Webhook активен, ожидающих: {webhook_info.get('pending_update_count', 0)}")
+                    else:
+                        logger.warning("Webhook не настроен! Пробуем перенастроить...")
+                        setup_webhook()
             
-            # Ждем 10 минут перед следующим пингом
-            time.sleep(600)
+            # Пингуем свой сервер
+            render_url = os.environ.get('RENDER_URL')
+            if render_url:
+                try:
+                    requests.get(f"{render_url}/ping", timeout=5)
+                except:
+                    pass
+            
+            time.sleep(300)  # Каждые 5 минут
+            
         except Exception as e:
             logger.error(f"Ошибка в keep_alive: {e}")
             time.sleep(60)
 
-# ========== ОБРАБОТЧИКИ КОМАНД ==========
+# ========== ОБРАБОТЧИКИ КОМАНД БОТА ==========
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
@@ -62,8 +186,41 @@ def send_welcome(message):
         "👋 Привет! Я бот для преобразования чисел.\n\n"
         "📝 Отправь мне **4 цифры** (например, 1234), "
         "и я применю к ним специальную формулу.\n\n"
+        "ℹ️ Бот работает в режиме webhook и всегда онлайн!\n"
+        "📊 Отправьте /status для проверки статуса"
     )
     bot.reply_to(message, welcome_text, parse_mode="Markdown")
+
+@bot.message_handler(commands=['status'])
+def status_command(message):
+    """Проверка статуса бота"""
+    try:
+        url = f"https://api.telegram.org/bot{TOKEN}/getWebhookInfo"
+        response = requests.get(url)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('ok'):
+                info = data['result']
+                status_text = (
+                    f"📊 **Статус бота:**\n"
+                    f"• Режим: Webhook\n"
+                    f"• URL: {info.get('url', 'не установлен')[:50]}...\n"
+                    f"• Ожидающих обновлений: {info.get('pending_update_count', 0)}\n"
+                    f"• Макс. соединений: {info.get('max_connections', 40)}\n"
+                )
+                
+                if info.get('last_error_date'):
+                    status_text += f"• Последняя ошибка: {info.get('last_error_message', 'неизвестно')}\n"
+            else:
+                status_text = "❌ Не удалось получить статус webhook"
+        else:
+            status_text = "❌ Ошибка подключения к Telegram API"
+        
+        bot.reply_to(message, status_text, parse_mode="Markdown")
+        
+    except Exception as e:
+        bot.reply_to(message, f"❌ Ошибка: {str(e)}")
 
 @bot.message_handler(func=lambda message: True)
 def calculate_number(message):
@@ -104,37 +261,45 @@ def calculate_number(message):
             "Попробуйте еще раз или отправьте /start"
         )
         bot.reply_to(message, error_message, parse_mode="Markdown")
-        logger.error(f"Ошибка в боте: {e}")
+        logger.error(f"Ошибка в обработчике: {e}")
 
-# ========== ЗАПУСК БОТА ==========
+# ========== ЗАПУСК ==========
 
 if __name__ == '__main__':
-    # Определяем режим работы
-    USE_WEBHOOK = os.environ.get('USE_WEBHOOK', 'False').lower() == 'true'
+    logger.info("=" * 50)
+    logger.info("ЗАПУСК БОТА В РЕЖИМЕ WEBHOOK")
+    logger.info("=" * 50)
     
-    if USE_WEBHOOK:
-        # Режим вебхуков (рекомендуется для Render.com)
-        RENDER_URL = os.environ.get('RENDER_URL')  # URL вашего приложения на Render
-        if not RENDER_URL:
-            logger.warning("RENDER_URL не установлен! Использую локальный хост для теста.")
-            RENDER_URL = "http://localhost:5000"
-        
-        # Удаляем старый вебхук и устанавливаем новый
-        bot.remove_webhook()
-        time.sleep(1)
-        bot.set_webhook(url=f"{RENDER_URL}/webhook")
-        logger.info(f"Вебхук установлен на {RENDER_URL}/webhook")
-        
-        # Запускаем Flask приложение
-        port = int(os.environ.get('PORT', 5000))
-        app.run(host='0.0.0.0', port=port)
+    # 1. Принудительно сбрасываем все старые подключения
+    logger.info("Шаг 1: Сброс всех старых подключений...")
+    if force_reset_webhook():
+        logger.info("✓ Все старые подключения сброшены")
     else:
-        # Режим поллинга (обычный режим)
-        logger.info("Запуск бота в режиме поллинга...")
-        
-        # Запускаем поток для поддержания активности
-        keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
-        keep_alive_thread.start()
-        
-        # Запускаем бота
-        bot.infinity_polling()
+        logger.warning("⚠ Проблема при сбросе подключений")
+    
+    time.sleep(2)
+    
+    # 2. Устанавливаем новый webhook
+    logger.info("Шаг 2: Установка нового webhook...")
+    if setup_webhook():
+        logger.info("✓ Webhook успешно установлен")
+    else:
+        logger.error("✗ Критическая ошибка: не удалось установить webhook")
+        sys.exit(1)
+    
+    time.sleep(1)
+    
+    # 3. Запускаем поток поддержания активности
+    logger.info("Шаг 3: Запуск потока поддержания активности...")
+    keep_alive_thread = threading.Thread(target=keep_alive, daemon=True)
+    keep_alive_thread.start()
+    logger.info("✓ Поток поддержания активности запущен")
+    
+    # 4. Запускаем Flask сервер
+    port = int(os.environ.get('PORT', 5000))
+    logger.info(f"Шаг 4: Запуск Flask сервера на порту {port}")
+    logger.info("=" * 50)
+    logger.info("БОТ УСПЕШНО ЗАПУЩЕН И ГОТОВ К РАБОТЕ!")
+    logger.info("=" * 50)
+    
+    app.run(host='0.0.0.0', port=port)
