@@ -1,3 +1,2 @@
-bash
 #!/bin/bash
-python Daressogen_bot.py
+gunicorn main:app --bind 0.0.0.0:$PORT
